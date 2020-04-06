@@ -50,7 +50,8 @@ Module.symvers
 /vmlinuz
 /System.map
 /Module.markers
-
+/build_kernel.sh
+/out/
 #
 # Debian directory (make deb-pkg)
 #
@@ -112,3 +113,10 @@ all.config
 
 # Kdevelop4
 *.kdev4
+
+# Samsung
+scripts/crypto/__pycache__/
+scripts/fmp/__pycache__/
+security/samsung/defex_lsm/defex_packed_rules.inc
+security/defex_lsm/file_list
+security/samsung/defex_lsm/pack_rules
