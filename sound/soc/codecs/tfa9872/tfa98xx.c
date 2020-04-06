@@ -168,6 +168,30 @@ static struct tfa98xx_rate rate_to_fssel[] = {
 	{ 48000, 8 },
 };
 
+enum tfa98xx_error tfaTotfa98xx(enum tfa_error err)
+{
+	switch (err) {
+		case tfa_error_ok:
+			return TFA98XX_ERROR_OK;
+		case tfa_error_device:
+			return TFA98XX_ERROR_DEVICE;
+		case tfa_error_bad_param:
+			return TFA98XX_ERROR_BAD_PARAMETER;
+		case tfa_error_noclock:
+			return TFA98XX_ERROR_NO_CLOCK;
+		case tfa_error_timeout:
+			return TFA98XX_ERROR_STATE_TIMED_OUT;
+		case tfa_error_dsp:
+			return TFA98XX_ERROR_DSP_NOT_RUNNING;
+		case tfa_error_container:
+			return TFA98XX_ERROR_NOT_OPEN;
+		case tfa_error_max:
+			return TFA98XX_ERROR_BUFFER_TOO_SMALL;
+		default:
+			return TFA98XX_ERROR_FAIL;
+	}
+}
+
 /* Wrapper for tfa start */
 static enum tfa_error
 tfa98xx_tfa_start(struct tfa98xx *tfa98xx, int next_profile, int *vstep)
@@ -1777,8 +1801,8 @@ static int tfa98xx_set_vstep(struct snd_kcontrol *kcontrol,
 			tfa98xx_open(tfa98xx->handle);
 			tfa98xx_close(tfa98xx->handle);
 
-			err = tfa98xx_tfa_start
-				(tfa98xx, profile, tfa98xx_vsteps);
+			err = tfaTotfa98xx(tfa98xx_tfa_start
+				(tfa98xx, profile, tfa98xx_vsteps));
 			if (err)
 				pr_err("Write vstep error: %d\n", err);
 			else
@@ -1879,7 +1903,7 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 		tfa98xx_close(tfa98xx->handle);
 
 		/* Also re-enables the interrupts */
-		err = tfa98xx_tfa_start(tfa98xx, prof_idx, tfa98xx_vsteps);
+		err = tfaTotfa98xx(tfa98xx_tfa_start(tfa98xx, prof_idx, tfa98xx_vsteps));
 		if (err) {
 			pr_info("Write profile error: %d\n", err);
 		} else {
@@ -3273,9 +3297,8 @@ static void tfa98xx_interrupt(struct work_struct *work)
 				enum tfa98xx_error err;
 				/* Clock lost. Set I2CR to remove POP noise */
 				pr_info("No clock detected. Resetting I2CR to avoid pop on 72!\n");
-				err = tfa98xx_tfa_start
-					(tfa98xx, tfa98xx_profile,
-					 tfa98xx_vsteps);
+				err = tfaTotfa98xx(tfa98xx_tfa_start
+					(tfa98xx, tfa98xx_profile, tfa98xx_vsteps));
 				if (err != TFA98XX_ERROR_OK)
 					pr_err("Error loading i2c registers (tfa_start), err=%d\n",
 						err);
