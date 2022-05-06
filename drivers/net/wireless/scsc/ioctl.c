@@ -18,6 +18,7 @@
 #include <scsc/scsc_mx.h>
 #include <scsc/scsc_log_collector.h>
 #include "dev.h"
+#include "fapi.h"
 
 #define CMD_RXFILTERADD         "RXFILTER-ADD"
 #define CMD_RXFILTERREMOVE              "RXFILTER-REMOVE"
@@ -84,6 +85,10 @@
 #define CMD_GETBSSINFO "GETBSSINFO"
 #define CMD_GETSTAINFO "GETSTAINFO"
 #define CMD_GETASSOCREJECTINFO "GETASSOCREJECTINFO"
+
+#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+#define CMD_BEACON_RECV "BEACON_RECV"
+#endif
 
 /* Known commands from framework for which no handlers */
 #define CMD_AMPDU_MPDU "AMPDU_MPDU"
@@ -1601,6 +1606,58 @@ static ssize_t slsi_country_write(struct net_device *dev, char *country_code)
 	return status;
 }
 
+#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+static ssize_t slsi_forward_beacon(struct net_device *dev, char *action)
+{
+	struct netdev_vif *netdev_vif = netdev_priv(dev);
+	struct slsi_dev   *sdev = netdev_vif->sdev;
+	int               intended_action = 0;
+	int               ret = 0;
+
+	if (strncasecmp(action, "stop", 4) == 0) {
+		intended_action = FAPI_ACTION_STOP;
+	} else if (strncasecmp(action, "start", 5) == 0) {
+		intended_action = FAPI_ACTION_START;
+	} else {
+		SLSI_NET_ERR(dev, "BEACON_RECV should be used with start or stop\n");
+		return -EINVAL;
+	}
+
+	SLSI_NET_DBG2(dev, SLSI_MLME, "BEACON_RECV %s!!\n", intended_action ? "START" : "STOP");
+	SLSI_MUTEX_LOCK(netdev_vif->vif_mutex);
+
+	if ((!netdev_vif->activated) || (netdev_vif->vif_type != FAPI_VIFTYPE_STATION) ||
+	    (netdev_vif->sta.vif_status != SLSI_VIF_STATUS_CONNECTED)) {
+		SLSI_ERR(sdev, "Not a STA vif or status is not CONNECTED\n");
+		ret = -EINVAL;
+		goto exit_vif_mutex;
+	}
+
+	if (((intended_action == FAPI_ACTION_START) && netdev_vif->is_wips_running) ||
+	    ((intended_action == FAPI_ACTION_STOP) && !netdev_vif->is_wips_running)) {
+		SLSI_NET_INFO(dev, "Forwarding beacon is already %s!!\n",
+			      netdev_vif->is_wips_running ? "running" : "stopped");
+		ret = 0;
+		goto exit_vif_mutex;
+	}
+
+	SLSI_MUTEX_LOCK(netdev_vif->scan_mutex);
+	if (intended_action == FAPI_ACTION_START &&
+	    (netdev_vif->scan[SLSI_SCAN_HW_ID].scan_req || netdev_vif->sta.roam_in_progress)) {
+		SLSI_NET_ERR(dev, "Rejecting BEACON_RECV start as scan/roam is running\n");
+		ret = -EBUSY;
+		goto exit_scan_mutex;
+	}
+
+	ret = slsi_mlme_set_forward_beacon(sdev, dev, intended_action);
+exit_scan_mutex:
+	SLSI_MUTEX_UNLOCK(netdev_vif->scan_mutex);
+exit_vif_mutex:
+	SLSI_MUTEX_UNLOCK(netdev_vif->vif_mutex);
+	return ret;
+}
+#endif
+
 static ssize_t slsi_update_rssi_boost(struct net_device *dev, char *rssi_boost_string)
 {
 	struct netdev_vif *netdev_vif = netdev_priv(dev);
@@ -1921,6 +1978,9 @@ static int slsi_get_supported_channels(struct slsi_dev *sdev, struct net_device 
 		chan_count = supported_chan_mib.data[i*2 + 1];
 		if (chan_start == 1) { /* for 2.4GHz */
 			supported_channels[supp_chan_length].start_chan_num = 1;
+			if (!(sdev->device_config.host_state & FAPI_HOSTSTATE_CELLULAR_ACTIVE) &&
+			    chan_count > 11 && sdev->device_config.disable_ch12_ch13)
+				chan_count = 11;
 			supported_channels[supp_chan_length].channel_count = chan_count;
 			supported_channels[supp_chan_length].increment = 1;
 			supported_channels[supp_chan_length].band = NL80211_BAND_2GHZ;
@@ -2009,6 +2069,19 @@ static int slsi_get_regulatory(struct net_device *dev, char *buf, int buf_len)
 		return -ENOMEM;
 }
 
+void slsi_disable_ch12_13(struct slsi_dev *sdev)
+{
+	struct wiphy *wiphy = sdev->wiphy;
+	struct ieee80211_channel *chan;
+
+	if (wiphy->bands[0]) {
+		chan = &wiphy->bands[0]->channels[11];
+		chan->flags |= IEEE80211_CHAN_DISABLED;
+		chan = &wiphy->bands[0]->channels[12];
+		chan->flags |= IEEE80211_CHAN_DISABLED;
+	}
+}
+
 int slsi_set_fcc_channel(struct net_device *dev, char *cmd, int cmd_len)
 {
 	struct netdev_vif    *ndev_vif = netdev_priv(dev);
@@ -2044,6 +2117,8 @@ int slsi_set_fcc_channel(struct net_device *dev, char *cmd, int cmd_len)
 				slsi_reset_channel_flags(sdev);
 				wiphy_apply_custom_regulatory(sdev->wiphy, sdev->device_config.domain_info.regdomain);
 				slsi_update_supported_channels_regd_flags(sdev);
+				if (flight_mode_ena && sdev->device_config.disable_ch12_ch13)
+					slsi_disable_ch12_13(sdev);
 			}
 		}
 	}
@@ -2436,6 +2511,12 @@ int slsi_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 		char *country_code = command + strlen(CMD_COUNTRY) + 1;
 
 		ret = slsi_country_write(dev, country_code);
+#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+	} else if (strncasecmp(command, CMD_BEACON_RECV, strlen(CMD_BEACON_RECV)) == 0) {
+		char *action = command + strlen(CMD_BEACON_RECV) + 1;
+
+		ret = slsi_forward_beacon(dev, action);
+#endif
 	} else if (strncasecmp(command, CMD_SETAPP2PWPSIE, strlen(CMD_SETAPP2PWPSIE)) == 0) {
 		ret = slsi_set_ap_p2p_wps_ie(dev, command, priv_cmd.total_len);
 	} else if (strncasecmp(command, CMD_P2PSETPS, strlen(CMD_P2PSETPS)) == 0) {

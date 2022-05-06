@@ -56,8 +56,7 @@ int tfa98xx_log_tfa_family;
 #define MTPEX_WAIT_NTRIES 25
 
 #define REDUCED_REGISTER_SETTING
-/* #define RAMPING_DOWN_BEFORE_STOP */
-#undef RAMPING_DOWN_BEFORE_STOP
+#define RAMPING_DOWN_BEFORE_STOP
 #define WRITE_CALIBRATION_DATA_TO_MTP
 #define CHECK_CALIBRATION_DATA_RANGE
 #if defined(WRITE_CALIBRATION_DATA_TO_MTP)
@@ -817,7 +816,7 @@ tfa98xx_filter_mem(tfa98xx_handle_t dev,
 		case 0x72:
 		default:
 			/* unsupported case, possibly intermediate version */
-			return -EPERM;
+			return TFA_ERROR;
 			_ASSERT(0);
 		}
 	}
@@ -942,7 +941,7 @@ enum tfa98xx_error tfa98xx_set_saam_use_case(int samstream)
 
 	if (devcount < 1) {
 		pr_err("No or wrong container file loaded\n");
-		return TFA98XX_ERROR_BAD_PARAMETER;
+		return tfa_error_bad_param;
 	}
 
 	for (dev = 0; dev < devcount; dev++)
@@ -963,7 +962,7 @@ enum tfa98xx_error tfa98xx_set_stream_state(int stream_state)
 
 	if (devcount < 1) {
 		pr_err("No or wrong container file loaded\n");
-		return TFA98XX_ERROR_BAD_PARAMETER;
+		return tfa_error_bad_param;
 	}
 
 	for (dev = 0; dev < devcount; dev++)

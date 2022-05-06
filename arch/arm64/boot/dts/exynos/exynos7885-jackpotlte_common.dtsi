@@ -53,29 +53,6 @@
 		};
 	};
 
-	firmware {
-		android {
-			compatible = "android,firmware";
-			fstab {
-				compatible = "android,fstab";
-				system {
-					compatible = "android,system";
-					dev = "/dev/block/platform/13500000.dwmmc0/by-name/SYSTEM";
-					type = "ext4";
-					mnt_flags = "ro";
-					fsmgr_flags = "wait";
-				};
-				vendor {
-					compatible = "android,vendor";
-					dev = "/dev/block/platform/13500000.dwmmc0/by-name/VENDOR";
-					type = "ext4";
-					mnt_flags = "ro";
-					fsmgr_flags = "wait";
-				};
-			};
-		};
-	};
-
 	/* USI MODE SETTINGS
 
 	usi_mode = "hsi2c0" or "hsi2c1" or "spi" or "uart"
@@ -2304,10 +2281,10 @@
 			net_boost,node="rmnet0 rmnet1 rmnet2 rmnet3 rmnet4 rmnet5 rmnet6 rmnet7 umts_dm0";
 			net_boost,table_size = <4>;
 			net_boost,table= <
-				100 0 0 1066000 0 845000 0 0 1 0
-				150 0 0 1170000 0 1144000 0 0 1 0
-				200 0 0 1378000 0 1539000 0 0 1 0
-				300 0 0 1586000 0 1794000 0 0 1 0
+				1   0 0 0 0 0 0 0 1 0
+				50  0 0 1170000 0 1144000 0 0 1 0
+				100 0 0 1378000 0 1539000 0 0 1 0
+				150 0 0 1586000 0 1794000 0 0 1 0
 				>;
 		};
 
@@ -2316,9 +2293,9 @@
 			net_boost,node="clat clat4 v4-rmnet0 v4-rmnet1 v4-rmnet2 v4-rmnet3 v4-rmnet4 v4-rmnet5 v4-rmnet6 v4-rmnet7";
 			net_boost,table_size = <3>;
 			net_boost,table= <
-				120 0 0 1378000 0 1144000 0 0 0 0
-				130 0 0 1378000 0 1539000 0 0 0 0
-				150 0 0 1586000 0 1794000 0 0 0 0
+				20  0 0 1170000 0 1539000 0 0 0 0
+				50  0 0 1378000 0 1539000 0 0 0 0
+				100 0 0 1586000 0 1794000 0 0 0 0
 				>;
 		};
 

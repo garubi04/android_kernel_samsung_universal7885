@@ -28,6 +28,8 @@
 
 #if (defined CONFIG_CCIC_NOTIFIER || defined CONFIG_DUAL_ROLE_USB_INTF)
 #include <linux/ccic/usbpd_ext.h>
+#elif defined(CONFIG_TYPEC)
+#include <linux/ccic/usbpd_ext.h>
 #endif
 #include <linux/ccic/usbpd.h>
 
@@ -38,6 +40,8 @@
 #elif defined CONFIG_CCIC_S2MU205
 #include <linux/ccic/usbpd-s2mu205.h>
 #endif
+
+#include <linux/usb_notify.h>
 
 #if defined(CONFIG_CCIC_NOTIFIER)
 static void ccic_event_notifier(struct work_struct *data)
@@ -456,6 +460,7 @@ int dual_role_init(void *_data)
 
 	return 0;
 }
+
 #elif defined(CONFIG_TYPEC)
 void typec_role_swap_check(struct work_struct *wk)
 {
@@ -581,9 +586,125 @@ int typec_port_type_set(const struct typec_capability *cap, enum typec_port_type
 	return 0;
 }
 
+static int typec_pr_set(const struct typec_capability *cap, enum typec_role role)
+{
+#if defined CONFIG_CCIC_S2MU004
+	struct s2mu004_usbpd_data *usbpd_data = container_of(cap, struct s2mu004_usbpd_data, typec_cap);
+#elif defined CONFIG_CCIC_S2MU106
+	struct s2mu106_usbpd_data *usbpd_data = container_of(cap, struct s2mu106_usbpd_data, typec_cap);
+#elif defined CONFIG_CCIC_S2MU205
+	struct s2mu205_usbpd_data *usbpd_data = container_of(cap, struct s2mu205_usbpd_data, typec_cap);
+#endif
+
+	int timeout = 0;
+
+	if (!usbpd_data) {
+		pr_err("%s : usbpd_data is null\n", __func__);
+		return -EINVAL;
+	}
+
+	pr_info("%s : typec_power_role=%d, typec_data_role=%d, role=%d\n",
+		__func__, usbpd_data->typec_power_role, usbpd_data->typec_data_role, role);
+
+	if (role == TYPEC_SINK) {
+		pr_info("%s, try reversing, from Source to Sink\n", __func__);
+		usbpd_data->typec_try_state_change = TYPE_C_PR_SWAP;
+		usbpd_manager_send_pr_swap(usbpd_data->dev);
+	} else if (role == TYPEC_SOURCE) {
+		pr_info("%s, try reversing, from Sink to Source\n", __func__);
+		usbpd_data->typec_try_state_change = TYPE_C_PR_SWAP;
+		usbpd_manager_send_pr_swap(usbpd_data->dev);
+	} else {
+		pr_info("invalid power role\n");
+		return -EIO;
+	}
+
+	if (usbpd_data->typec_try_state_change) {
+		reinit_completion(&usbpd_data->role_reverse_completion);
+		timeout =
+		    wait_for_completion_timeout(&usbpd_data->role_reverse_completion,
+						msecs_to_jiffies
+						(DUAL_ROLE_SET_MODE_WAIT_MS));
+
+		if (!timeout) {
+			pr_err("%s: reverse failed\n", __func__);
+			disable_irq(usbpd_data->irq);
+			/* exit from Disabled state and set mode to DRP */
+			usbpd_data->typec_try_state_change = 0;
+			return -EIO;
+		} else
+			pr_err("%s: reverse success\n", __func__);
+	}
+
+	return 0;
+}
+
+static int typec_dr_set(const struct typec_capability *cap, enum typec_data_role role)
+{
+#if defined CONFIG_CCIC_S2MU004
+	struct s2mu004_usbpd_data *usbpd_data = container_of(cap, struct s2mu004_usbpd_data, typec_cap);
+#elif defined CONFIG_CCIC_S2MU106
+	struct s2mu106_usbpd_data *usbpd_data = container_of(cap, struct s2mu106_usbpd_data, typec_cap);
+#elif defined CONFIG_CCIC_S2MU205
+	struct s2mu205_usbpd_data *usbpd_data = container_of(cap, struct s2mu205_usbpd_data, typec_cap);
+#endif
+
+	int timeout = 0;
+
+	if (!usbpd_data) {
+		pr_err("%s : usbpd_data is null\n", __func__);
+		return -EINVAL;
+	}
+
+	pr_info("%s : typec_power_role=%d, typec_data_role=%d, role=%d\n",
+		__func__, usbpd_data->typec_power_role, usbpd_data->typec_data_role, role);
+
+	if (role == TYPEC_DEVICE) {
+		pr_info("%s, try reversing, from DFP to UFP\n", __func__);
+		usbpd_data->typec_try_state_change = TYPE_C_DR_SWAP;
+		usbpd_manager_send_dr_swap(usbpd_data->dev);
+	} else if (role == TYPEC_HOST) {
+		pr_info("%s, try reversing, from UFP to DFP\n", __func__);
+		usbpd_data->typec_try_state_change = TYPE_C_DR_SWAP;
+		usbpd_manager_send_dr_swap(usbpd_data->dev);
+	} else {
+		pr_info("invalid power role\n");
+		return -EIO;
+	}
+
+	if (usbpd_data->typec_try_state_change) {
+		reinit_completion(&usbpd_data->role_reverse_completion);
+		timeout =
+		    wait_for_completion_timeout(&usbpd_data->role_reverse_completion,
+						msecs_to_jiffies
+						(DUAL_ROLE_SET_MODE_WAIT_MS));
+
+		if (!timeout) {
+			pr_err("%s: reverse failed\n", __func__);
+			disable_irq(usbpd_data->irq);
+			/* exit from Disabled state and set mode to DRP */
+			usbpd_data->typec_try_state_change = 0;
+			return -EIO;
+		} else
+			pr_err("%s: reverse success\n", __func__);
+	}
+
+	return 0;
+}
+
 int typec_get_pd_support(void *_data)
 {
-	return TYPEC_PWR_MODE_USB;
+#if defined CONFIG_CCIC_S2MU004
+	struct s2mu004_usbpd_data *pdic_data = _data;
+#elif defined CONFIG_CCIC_S2MU106
+	struct s2mu106_usbpd_data *pdic_data = _data;
+#endif
+	struct usbpd_data *pd_data = dev_get_drvdata(pdic_data->dev);
+
+	if (pd_data->pd_support)
+		return TYPEC_PWR_MODE_PD;
+	else
+		return TYPEC_PWR_MODE_USB;
 }
 
 int typec_init(void *_data)
@@ -599,9 +720,12 @@ int typec_init(void *_data)
 	pdic_data->typec_cap.revision = USB_TYPEC_REV_1_2;
 	pdic_data->typec_cap.pd_revision = 0x300;
 	pdic_data->typec_cap.prefer_role = TYPEC_NO_PREFERRED_ROLE;
+	pdic_data->typec_cap.pr_set = typec_pr_set;
+	pdic_data->typec_cap.dr_set = typec_dr_set;
 	pdic_data->typec_cap.port_type_set = typec_port_type_set;
 	pdic_data->typec_cap.type = TYPEC_PORT_DRP;
 	pdic_data->port = typec_register_port(pdic_data->dev, &pdic_data->typec_cap);
+	pdic_data->partner = NULL;
 	if (IS_ERR(pdic_data->port)) {
 		pr_err("%s : unable to register typec_register_port\n", __func__);
 		return -1;

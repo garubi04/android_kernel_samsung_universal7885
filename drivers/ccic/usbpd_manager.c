@@ -173,6 +173,20 @@ void usbpd_manager_start_discover_msg_cancel(struct device *dev)
 	cancel_delayed_work_sync(&manager->start_discover_msg_handler);
 }
 
+void usbpd_manager_send_pr_swap(struct device *dev)
+{
+	pr_info("%s: call send pr swap msg\n", __func__);
+
+	usbpd_manager_inform_event(pd_noti.pd_data, MANAGER_SEND_PR_SWAP);
+}
+
+void usbpd_manager_send_dr_swap(struct device *dev)
+{
+	pr_info("%s: call send pr swap msg\n", __func__);
+
+	usbpd_manager_inform_event(pd_noti.pd_data, MANAGER_SEND_DR_SWAP);
+}
+
 static void init_source_cap_data(struct usbpd_manager_data *_data)
 {
 /*	struct usbpd_data *pd_data = manager_to_usbpd(_data);
@@ -967,6 +981,14 @@ void usbpd_manager_inform_event(struct usbpd_data *pd_data,
 	case MANAGER_START_DISCOVER_IDENTITY:
 		usbpd_manager_command_to_policy(pd_data->dev,
 					MANAGER_REQ_VDM_DISCOVER_IDENTITY);
+		break;
+	case MANAGER_SEND_PR_SWAP:
+		usbpd_manager_command_to_policy(pd_data->dev,
+					MANAGER_REQ_PR_SWAP);
+		break;
+	case MANAGER_SEND_DR_SWAP:
+		usbpd_manager_command_to_policy(pd_data->dev,
+					MANAGER_REQ_DR_SWAP);
 		break;
 	default:
 		pr_info("%s: not matched event(%d)\n", __func__, event);

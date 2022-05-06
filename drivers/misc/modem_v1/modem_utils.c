@@ -527,7 +527,7 @@ void stop_net_ifaces(struct link_device *ld)
 	unsigned long flags;
 	spin_lock_irqsave(&ld->netif_lock, flags);
 
-	if (!atomic_read(&ld->netif_stopped) > 0) {
+	if (!atomic_read(&ld->netif_stopped)) {
 		if (ld->msd)
 			netif_tx_flowctl(ld->msd, true);
 
@@ -591,7 +591,7 @@ __be32 ipv4str_to_be32(const char *ipv4str, size_t count)
 		char *p;
 
 		p = strsep(&next, ".");
-		if (kstrtou8(p, 10, &ip[i]) < 0)
+		if (p && kstrtou8(p, 10, &ip[i]) < 0)
 			return 0; /* == 0.0.0.0 */
 	}
 
@@ -1056,7 +1056,10 @@ int mif_request_irq(struct modem_irq *irq, irq_handler_t isr, void *data)
 		return ret;
 	}
 
+	enable_irq_wake(irq->num);
 	irq->active = true;
+	irq->registered = true;
+
 	mif_info("%s(#%d) handler registered (flags:0x%08lX)\n",
 		irq->name, irq->num, irq->flags);
 
@@ -1076,6 +1079,7 @@ void mif_enable_irq(struct modem_irq *irq)
 	}
 
 	enable_irq(irq->num);
+	enable_irq_wake(irq->num);
 
 	irq->active = true;
 
@@ -1090,6 +1094,9 @@ void mif_disable_irq(struct modem_irq *irq)
 {
 	unsigned long flags;
 
+	if (irq->registered == false)
+		return;
+
 	spin_lock_irqsave(&irq->lock, flags);
 
 	if (!irq->active) {
@@ -1099,6 +1106,7 @@ void mif_disable_irq(struct modem_irq *irq)
 	}
 
 	disable_irq_nosync(irq->num);
+	disable_irq_wake(irq->num);
 
 	irq->active = false;
 
@@ -1107,6 +1115,33 @@ void mif_disable_irq(struct modem_irq *irq)
 
 exit:
 	spin_unlock_irqrestore(&irq->lock, flags);
+}
+
+void mif_disable_irq_sync(struct modem_irq *irq)
+{
+	if (irq->registered == false)
+		return;
+
+	spin_lock(&irq->lock);
+
+	if (!irq->active) {
+		spin_unlock(&irq->lock);
+		mif_err("%s(#%d) is not active <%pf>\n",
+				irq->name, irq->num, CALLER);
+		return;
+	}
+
+	spin_unlock(&irq->lock);
+
+	disable_irq(irq->num);
+	enable_irq_wake(irq->num);
+
+	spin_lock(&irq->lock);
+	irq->active = false;
+	spin_unlock(&irq->lock);
+
+	mif_info("%s(#%d) is disabled <%pf>\n",
+		irq->name, irq->num, CALLER);
 }
 
 struct file *mif_open_file(const char *path)

@@ -252,6 +252,8 @@ retry:
 			(total_scanned < (end_pfn - start_pfn) * MAX_SCAN_TRY)
 			&& (remained > 0);
 			pfn += nr_pages, total_scanned += nr_pages) {
+		int mt;
+
 		if (pfn + nr_pages > end_pfn) {
 			pfn = start_pfn;
 			continue;
@@ -267,14 +269,21 @@ retry:
 		if (tmp < (pfn + nr_pages))
 			continue;
 
-		if (get_pageblock_migratetype(pfn_to_page(pfn)) == MIGRATE_CMA)
+		mt = get_pageblock_migratetype(pfn_to_page(pfn));
+		/*
+		 * CMA pages should not be reclaimed.
+		 * Isolated page blocks should not be tried again because it
+		 * causes isolated page block remained in isolated state
+		 * forever.
+		 */
+		if (is_migrate_cma(mt) || is_migrate_isolate(mt))
+			/* nr_pages is added before next iteration */
 			continue;
 
 		if (!is_movable_chunk(pfn, order))
 			continue;
 
-		ret = alloc_contig_range_fast(pfn, pfn + nr_pages,
-				get_pageblock_migratetype(pfn_to_page(pfn)));
+		ret = alloc_contig_range_fast(pfn, pfn + nr_pages, mt);
 		if (ret == 0)
 			prep_highorder_pages(pfn, order);
 		else
